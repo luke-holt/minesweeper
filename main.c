@@ -8,7 +8,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <math.h>
+#include <stdarg.h>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 const char *vertex_shader_source = "#version 330 core\n"
     "layout (location = 0) in vec3 aPos;\n"
@@ -28,7 +31,8 @@ const char *fragment_shader_source = "#version 330 core\n"
     "    color = vColor;\n"
     "}\0";
 
-static void sdl_err(bool rc) {
+static void
+sdl_err(int rc) {
     if (!rc) {
         printf("%s", SDL_GetError());
         exit(1);
@@ -82,6 +86,8 @@ static void check_gl_err(bool enable, int line, const char *msg) {
     if (error_occurred) exit(1);
 }
 
+static void die(const char *fmt, ...);
+
 static void render(void);
 static void init(void);
 static void teardown(void);
@@ -90,7 +96,7 @@ static void teardown(void);
 const int scw = 640;
 const int sch = 480;
 
-GLuint VAO, VBO, EBO, shader_program;
+GLuint VAO, VBO, EBO, shader, texture;
 SDL_Window *g_window;
 SDL_GLContext g_gl_context;
 
@@ -237,7 +243,9 @@ static void
 init(void)
 {
     GLuint vertex_shader, fragment_shader;
-    int ret;
+    int ret, w, h, ch;
+    GLenum fmt;
+    void *image;
 
     /* init SDL */
 
@@ -281,10 +289,10 @@ init(void)
     glCompileShader(fragment_shader);
     GL_ERR("create fragment shader");
 
-    shader_program = glCreateProgram();
-    glAttachShader(shader_program, vertex_shader);
-    glAttachShader(shader_program, fragment_shader);
-    glLinkProgram(shader_program);
+    shader = glCreateProgram();
+    glAttachShader(shader, vertex_shader);
+    glAttachShader(shader, fragment_shader);
+    glLinkProgram(shader);
     glDeleteShader(vertex_shader);
     glDeleteShader(fragment_shader);
     GL_ERR("compile shader");
@@ -316,6 +324,35 @@ init(void)
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
 
     GL_ERR("create VAO/VBO");
+
+    /* load texture */
+
+    stbi_set_flip_vertically_on_load(true);
+    image = stbi_load("texture.png", &w, &h, &ch, 0);
+    if (!image) die("stbi_load: could not load image `%s`\n", "texture.png");
+
+    switch (ch) {
+    case 1: fmt = GL_RED; break;
+    case 3: fmt = GL_RGB; break;
+    case 5: fmt = GL_RGBA; break;
+    default: die("unsupported channel count: %d", ch);;
+    }
+
+    glActiveTexture(GL_TEXTURE0);
+
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, fmt, w, h, 0, fmt, GL_UNSIGNED_BYTE, image);
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    stbi_image_free(image);
+    glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 static void
@@ -324,7 +361,9 @@ teardown(void)
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
     glDeleteBuffers(1, &EBO);
-    glDeleteProgram(shader_program);
+    glDeleteTextures(1, &texture);
+    glDeleteProgram(shader);
+
     GL_ERR("cleanup");
 
     SDL_DestroyWindow(g_window);
@@ -357,7 +396,7 @@ render(void)
     GL_ERR("clear background");
 
     /* draw */
-    glUseProgram(shader_program);
+    glUseProgram(shader);
     glDrawElements(GL_TRIANGLES, index_buffer_count, GL_UNSIGNED_INT, 0);
 
     GL_ERR("draw elements");
@@ -368,5 +407,15 @@ render(void)
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
 
     GL_ERR("unbind buffers");
+}
+
+static void
+die(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	vfprintf(stdout, fmt, ap);
+	va_end(ap);
+	exit(1);
 }
 
