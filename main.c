@@ -14,21 +14,26 @@
 #include "stb_image.h"
 
 const char *vertex_shader_source = "#version 330 core\n"
-    "layout (location = 0) in vec3 aPos;\n"
+    "layout (location = 0) in vec3 pos;\n"
     "layout (location = 1) in vec3 color;\n"
+    "layout (location = 2) in vec2 texcoord;\n"
     "out vec4 vColor;\n"
+    "out vec2 vTexCoord;\n"
     "void main()\n"
     "{\n"
-    "    gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
+    "    gl_Position = vec4(pos.x, pos.y, pos.z, 1.0);\n"
     "    vColor = vec4(color.x, color.y, color.z, 1.0);\n"
+    "    vTexCoord = texcoord;\n"
     "}\0";
 
 const char *fragment_shader_source = "#version 330 core\n"
+    "out vec4 fColor;\n"
     "in vec4 vColor;\n"
-    "out vec4 color;\n"
+    "in vec2 vTexCoord;\n"
+    "uniform sampler2D tex0;\n"
     "void main()\n"
     "{\n"
-    "    color = vColor;\n"
+    "    fColor = texture(tex0, vTexCoord);\n"
     "}\0";
 
 static void
@@ -96,7 +101,7 @@ static void teardown(void);
 const int scw = 640;
 const int sch = 480;
 
-GLuint VAO, VBO, EBO, shader, texture;
+GLuint VAO, VBO, EBO, shader, texture, uniform_tex0;
 SDL_Window *g_window;
 SDL_GLContext g_gl_context;
 
@@ -113,8 +118,8 @@ main(int argc, char *argv[])
     SDL_Event e;
     int i, j;
 
-    /* 6 values per vertex (position, color). 10x10 vertices (9x9 tiles). */
-    vertex_buffer_size = sizeof(*vertex_buffer) * 6 * 10 * 10;
+    /* 8 values per vertex (position, color, texcoord). 10x10 vertices (9x9 tiles). */
+    vertex_buffer_size = sizeof(*vertex_buffer) * 8 * 10 * 10;
     vertex_buffer = malloc(vertex_buffer_size);
 
     /* 3 indices per triangle. 2 triangles per tile. 9x9 tiles. */
@@ -127,18 +132,18 @@ main(int argc, char *argv[])
         exit(1);
     }
 
-#if 1
-
     /* set up vertex buffer */
     for (j = 0; j < 10; j++) {
         for (i = 0; i < 10; i++) {
             /* 0:sc -> -1:1 => (pixel / scw) * 2 - 1  */
-            *(vertex_buffer + (j * 10 + i) * 6 + 0) = (float)(i * 20 + 20) / (float)scw * 2.0 - 1.0;
-            *(vertex_buffer + (j * 10 + i) * 6 + 1) = (float)(j * 20 + 20) / (float)sch * 2.0 - 1.0;
-            *(vertex_buffer + (j * 10 + i) * 6 + 2) = 0.0;
-            *(vertex_buffer + (j * 10 + i) * 6 + 3) = randf();
-            *(vertex_buffer + (j * 10 + i) * 6 + 4) = randf();
-            *(vertex_buffer + (j * 10 + i) * 6 + 5) = randf();
+            *(vertex_buffer + (j * 10 + i) * 8 + 0) = (float)(i * 40 + 20) / (float)scw * 2.0 - 1.0;
+            *(vertex_buffer + (j * 10 + i) * 8 + 1) = (float)(j * 40 + 20) / (float)sch * 2.0 - 1.0;
+            *(vertex_buffer + (j * 10 + i) * 8 + 2) = 0.0;
+            *(vertex_buffer + (j * 10 + i) * 8 + 3) = randf();
+            *(vertex_buffer + (j * 10 + i) * 8 + 4) = randf();
+            *(vertex_buffer + (j * 10 + i) * 8 + 5) = randf();
+            *(vertex_buffer + (j * 10 + i) * 8 + 6) = i&1 ? 1.0 : 0.0;
+            *(vertex_buffer + (j * 10 + i) * 8 + 7) = j&1 ? 1.0 : 0.0;
         }
     }
 
@@ -154,38 +159,6 @@ main(int argc, char *argv[])
             *(index_buffer + (j * 9 + i) * 6 + 5) = (j * 10 + i) + 11;
         }
     }
-
-#else
-
-    vertex_buffer[0*6 + 0] = 0.5;
-    vertex_buffer[0*6 + 1] = 0.5;
-    vertex_buffer[0*6 + 2] = 0.0;
-    vertex_buffer[0*6 + 3] = randf();
-    vertex_buffer[0*6 + 4] = randf();
-    vertex_buffer[0*6 + 5] = randf();
-
-    vertex_buffer[1*6 + 0] = -0.5;
-    vertex_buffer[1*6 + 1] = 0.0;
-    vertex_buffer[1*6 + 2] = 0.0;
-    vertex_buffer[1*6 + 3] = randf();
-    vertex_buffer[1*6 + 4] = randf();
-    vertex_buffer[1*6 + 5] = randf();
-
-    vertex_buffer[2*6 + 0] = 0.5;
-    vertex_buffer[2*6 + 1] = -0.5;
-    vertex_buffer[2*6 + 2] = 0.0;
-    vertex_buffer[2*6 + 3] = randf();
-    vertex_buffer[2*6 + 4] = randf();
-    vertex_buffer[2*6 + 5] = randf();
-
-    vertex_buffer_size = sizeof(*vertex_buffer) * 6 * 3;
-
-    index_buffer[0] = 0;
-    index_buffer[1] = 1;
-    index_buffer[2] = 2;
-    index_buffer_size = sizeof(*index_buffer) * 3;
-    index_buffer_count = 3;
-#endif
 
     init();
 
@@ -313,10 +286,12 @@ init(void)
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_buffer_size, NULL, GL_DYNAMIC_DRAW);
 
     /* shader attributes (layout) position and color */
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(3 * sizeof(float)));
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(6 * sizeof(float)));
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
+    glEnableVertexAttribArray(2);
 
     /* unbind */
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -338,6 +313,8 @@ init(void)
     default: die("unsupported channel count: %d", ch);;
     }
 
+    /* texture setup */
+
     glActiveTexture(GL_TEXTURE0);
 
     glGenTextures(1, &texture);
@@ -350,6 +327,10 @@ init(void)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    uniform_tex0 = glGetUniformLocation(shader, "tex0");
+    glUseProgram(shader);
+    glUniform1i(uniform_tex0, 0);
 
     stbi_image_free(image);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -380,6 +361,7 @@ render(void)
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBindTexture(GL_TEXTURE_2D, texture);
 
     GL_ERR("bind buffers");
 
@@ -405,6 +387,7 @@ render(void)
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBindTexture(GL_TEXTURE_2D, 0);
 
     GL_ERR("unbind buffers");
 }
