@@ -98,7 +98,7 @@ static void tilemap_init(int w, int h);
 /* GLOBAL DATA */
 int scw, sch;
 
-GLuint VAO, VBO, shader, texture, uniform_tex0;
+GLuint VAO, VBO, EBO, shader, texture, uniform_tex0;
 SDL_Window *g_window;
 SDL_GLContext g_gl_context;
 
@@ -106,11 +106,9 @@ struct vertex { float x, y, tx, ty; };
 struct vertex *vertex_buffer;
 int vertex_buffer_size = 0;
 
-/*
 GLuint *index_buffer;
 int index_buffer_size = 0;
 int index_buffer_count = 0;
-*/
 
 int
 main(int argc, char *argv[])
@@ -185,6 +183,7 @@ enum {
     TILE_CELL_8,
     TILE_CELL_BOMB,
     TILE_CELL_BOMBRED,
+    TILE_CELL_BOMBX,
     TILE_SMILE_NORMAL,
     TILE_SMILE_CLICK,
     TILE_SMILE_WIN,
@@ -210,7 +209,7 @@ enum {
 void
 tilemap_init(int w, int h)
 {
-    int barh, border, tile, ox, oy, vcount, i, j;
+    int barh, border, tile, ox, oy, vcount, i, j, nquad;
     struct vertex *v;
 
     tile = 16;
@@ -219,61 +218,71 @@ tilemap_init(int w, int h)
     scw = border * 2 + tile * w;
     sch = barh + tile * h + border;
 
-    vcount = 36 + (h + 1) * (w + 1) * 8;
+    /* frame (8), smile (1), numbers (6) */
+    nquad = 8 + 1 + 6 + h * w;
+
+    /* 4 vertices per quad */
+    vcount = nquad * 4;
 
     vertex_buffer_size = vcount * sizeof(*vertex_buffer);
     vertex_buffer = malloc(vertex_buffer_size);
     if (!vertex_buffer) die("couldn't allocate vertex buffer");
 
+    /* 6 indices per quad */
+    index_buffer_count = nquad * 6;
+    index_buffer_size = index_buffer_count * sizeof(*index_buffer);
+    index_buffer = malloc(index_buffer_size);
+    if (!index_buffer) die("couldn't allocate index buffer");
+
     v = vertex_buffer;
 
     /* bar left */
-    *v++ = (struct vertex) {          0,            sch,  2, 30 };
-    *v++ = (struct vertex) { border - 1,            sch, 11, 30 };
-    *v++ = (struct vertex) {          0, sch - barh + 1,  2, 81 };
-    *v++ = (struct vertex) { border - 1, sch - barh + 1, 11, 81 };
+    *v++ = (struct vertex) {          0,        sch,  2, 30 };
+    *v++ = (struct vertex) { border    ,        sch, 12, 30 };
+    *v++ = (struct vertex) {          0, sch - barh,  2, 82 };
+    *v++ = (struct vertex) { border    , sch - barh, 12, 82 };
 
     /* bar middle */
-    *v++ = (struct vertex) {       border,            sch, 14, 30 };
-    *v++ = (struct vertex) { scw - border,            sch, 29, 30 };
-    *v++ = (struct vertex) {       border, sch - barh + 1, 14, 81 };
-    *v++ = (struct vertex) { scw - border, sch - barh + 1, 29, 81 };
+    *v++ = (struct vertex) {       border,        sch, 14, 30 };
+    *v++ = (struct vertex) { scw - border,        sch, 30, 30 };
+    *v++ = (struct vertex) {       border, sch - barh, 14, 82 };
+    *v++ = (struct vertex) { scw - border, sch - barh, 30, 82 };
 
     /* bar right */
-    *v++ = (struct vertex) { scw - border + 1,            sch, 32, 30 };
-    *v++ = (struct vertex) {              scw,            sch, 41, 30 };
-    *v++ = (struct vertex) { scw - border + 1, sch - barh + 1, 32, 81 };
-    *v++ = (struct vertex) {              scw, sch - barh + 1, 41, 81 };
+    *v++ = (struct vertex) { scw - border,        sch, 32, 30 };
+    *v++ = (struct vertex) {          scw,        sch, 42, 30 };
+    *v++ = (struct vertex) { scw - border, sch - barh, 32, 82 };
+    *v++ = (struct vertex) {          scw, sch - barh, 42, 82 };
 
     /* bottom border left */
-    *v++ = (struct vertex) {          0, border - 1,  2, 30 };
-    *v++ = (struct vertex) { border - 1, border - 1, 11, 30 };
-    *v++ = (struct vertex) {          0,          0,  2, 81 };
-    *v++ = (struct vertex) { border - 1,          0, 11, 81 };
+    *v++ = (struct vertex) {      0, border,  2, 84 };
+    *v++ = (struct vertex) { border, border, 12, 84 };
+    *v++ = (struct vertex) {      0,      0,  2, 94 };
+    *v++ = (struct vertex) { border,      0, 12, 94 };
     
     /* bottom border middle */
-    *v++ = (struct vertex) {       border, border - 1, 14, 30 };
-    *v++ = (struct vertex) { scw - border, border - 1, 29, 30 };
-    *v++ = (struct vertex) {       border,          0, 14, 81 };
-    *v++ = (struct vertex) { scw - border,          0, 29, 81 };
+    *v++ = (struct vertex) {       border, border, 14, 84 };
+    *v++ = (struct vertex) { scw - border, border, 29, 84 };
+    *v++ = (struct vertex) {       border,      0, 14, 94 };
+    *v++ = (struct vertex) { scw - border,      0, 29, 94 };
     
     /* bottom border right */
-    *v++ = (struct vertex) { scw - border + 1, border - 1, 32, 30 };
-    *v++ = (struct vertex) {              scw, border - 1, 41, 30 };
-    *v++ = (struct vertex) { scw - border + 1,          0, 32, 81 };
-    *v++ = (struct vertex) {              scw,          0, 41, 81 };
+    *v++ = (struct vertex) { scw - border, border, 32, 84 };
+    *v++ = (struct vertex) {          scw, border, 42, 84 };
+    *v++ = (struct vertex) { scw - border,      0, 32, 94 };
+    *v++ = (struct vertex) {          scw,      0, 42, 94 };
     
     /* left border */
-    *v++ = (struct vertex) {          0, sch - barh,  2, 40 };
-    *v++ = (struct vertex) { border - 1, sch - barh, 11, 40 };
-    *v++ = (struct vertex) {          0,     border,  2, 71 };
-    *v++ = (struct vertex) { border - 1,     border, 11, 71 };
+    *v++ = (struct vertex) {      0, sch - barh,  2, 40 };
+    *v++ = (struct vertex) { border, sch - barh, 12, 40 };
+    *v++ = (struct vertex) {      0,     border,  2, 72 };
+    *v++ = (struct vertex) { border,     border, 12, 72 };
     
     /* right border */
-    *v++ = (struct vertex) { scw - border + 1, sch - barh,  2, 40 };
-    *v++ = (struct vertex) {              scw, sch - barh, 11, 40 };
-    *v++ = (struct vertex) { scw - border + 1,     border,  2, 71 };
-    *v++ = (struct vertex) {              scw,     border, 11, 71 };
+    *v++ = (struct vertex) { scw - border, sch - barh,  2, 40 };
+    *v++ = (struct vertex) {          scw, sch - barh, 12, 40 };
+    *v++ = (struct vertex) { scw - border,     border,  2, 72 };
+    *v++ = (struct vertex) {          scw,     border, 12, 72 };
 
     /* smile */
     *v++ = (struct vertex) { scw / 2 - 13, sch - barh / 2 + 13,  86,  2 };
@@ -281,26 +290,67 @@ tilemap_init(int w, int h)
     *v++ = (struct vertex) { scw / 2 - 13, sch - barh / 2 - 13,  86, 27 };
     *v++ = (struct vertex) { scw / 2 + 13, sch - barh / 2 - 13, 111, 27 };
 
-    /*
+    /* left numbers */
+    *v++ = (struct vertex) {      16,      sch - 14, 2, 96 };
+    *v++ = (struct vertex) { 16 + 13,      sch - 14, 15, 96 };
+    *v++ = (struct vertex) {      16, sch - 14 - 23, 2, 119 };
+    *v++ = (struct vertex) { 16 + 13, sch - 14 - 23, 15, 119 };
+
+    *v++ = (struct vertex) {      29,      sch - 14, 2, 96 };
+    *v++ = (struct vertex) { 29 + 13,      sch - 14, 15, 96 };
+    *v++ = (struct vertex) {      29, sch - 14 - 23, 2, 119 };
+    *v++ = (struct vertex) { 29 + 13, sch - 14 - 23, 15, 119 };
+
+    *v++ = (struct vertex) {      42,      sch - 14, 2, 96 };
+    *v++ = (struct vertex) { 42 + 13,      sch - 14, 15, 96 };
+    *v++ = (struct vertex) {      42, sch - 14 - 23, 2, 119 };
+    *v++ = (struct vertex) { 42 + 13, sch - 14 - 23, 15, 119 };
+    
+    /* right numbers */
+    *v++ = (struct vertex) { scw - 55,      sch - 14, 2, 96 };
+    *v++ = (struct vertex) { scw - 42,      sch - 14, 15, 96 };
+    *v++ = (struct vertex) { scw - 55, sch - 14 - 23, 2, 119 };
+    *v++ = (struct vertex) { scw - 42, sch - 14 - 23, 15, 119 };
+
+    *v++ = (struct vertex) { scw - 42,      sch - 14, 2, 96 };
+    *v++ = (struct vertex) { scw - 29,      sch - 14, 15, 96 };
+    *v++ = (struct vertex) { scw - 42, sch - 14 - 23, 2, 119 };
+    *v++ = (struct vertex) { scw - 29, sch - 14 - 23, 15, 119 };
+
+    *v++ = (struct vertex) { scw - 29,      sch - 14, 2, 96 };
+    *v++ = (struct vertex) { scw - 16,      sch - 14, 15, 96 };
+    *v++ = (struct vertex) { scw - 29, sch - 14 - 23, 2, 119 };
+    *v++ = (struct vertex) { scw - 16, sch - 14 - 23, 15, 119 };
+
+    /* mines */
     ox = border;
     oy = sch - barh;
-    for (j = 0; j < h+1; j++) {
-        for (i = 0; i < w+1; i++) {
-            *v++ = (struct vertex) {           ox + i * tile,           oy - j * tile, 80, 30 };
-            *v++ = (struct vertex) { ox + (i + 1) * tile - 1,           oy - j * tile, 95, 30 };
-            *v++ = (struct vertex) {           ox + i * tile, oy - (j + 1) * tile + 1, 80, 45 };
-            *v++ = (struct vertex) { ox + (i + 1) * tile - 1, oy - (j + 1) * tile + 1, 95, 45 };
+    for (j = 0; j < h; j++) {
+        for (i = 0; i < w; i++) {
+            *v++ = (struct vertex) {       ox + i * tile,       oy - j * tile, 80, 30 };
+            *v++ = (struct vertex) { ox + (i + 1) * tile,       oy - j * tile, 96, 30 };
+            *v++ = (struct vertex) {       ox + i * tile, oy - (j + 1) * tile, 80, 46 };
+            *v++ = (struct vertex) { ox + (i + 1) * tile, oy - (j + 1) * tile, 96, 46 };
         }
     }
-    */
 
-    /* map coordinates to [0, 1] */
+    /* map coordinates to gl space */
     v = vertex_buffer;
     for (i = 0; i < vcount; i++) {
-        v[i].x = 2.0 * v[i].x / (float)scw - 1.0;
-        v[i].y = 2.0 * v[i].y / (float)sch - 1.0;
+        v[i].x = v[i].x / (float)scw * 2.0 - 1.0;
+        v[i].y = v[i].y / (float)sch * 2.0 - 1.0;
         v[i].tx = v[i].tx / 256.0;
         v[i].ty = v[i].ty / 256.0;
+    }
+
+    /* setup indices */
+    for (i = 0; i < nquad; i++) {
+        index_buffer[i*6 + 0] = 0 + i*4;
+        index_buffer[i*6 + 1] = 1 + i*4;
+        index_buffer[i*6 + 2] = 2 + i*4;
+        index_buffer[i*6 + 3] = 1 + i*4;
+        index_buffer[i*6 + 4] = 2 + i*4;
+        index_buffer[i*6 + 5] = 3 + i*4;
     }
 }
 
@@ -342,7 +392,7 @@ init(void)
 
     glViewport(0, 0, scw, sch);
 
-    /* create shader program */
+    /* build shader program */
 
     vertex_shader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertex_shader, 1, &vertex_shader_source, NULL);
@@ -362,17 +412,20 @@ init(void)
     glDeleteShader(fragment_shader);
     GL_ERR("compile shader");
 
-    /* VAO/VBO setup */
+    /* VAO/VBO/EBO setup */
 
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
 
     glBindVertexArray(VAO);
-
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
 
     /* populate buffers */
-    glBufferData(GL_ARRAY_BUFFER, vertex_buffer_size, NULL, GL_DYNAMIC_DRAW);
+
+    glBufferData(GL_ARRAY_BUFFER, vertex_buffer_size, vertex_buffer, GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_buffer_size, index_buffer, GL_STATIC_DRAW);
 
     /* shader attributes (layout) position and color */
 
@@ -384,12 +437,12 @@ init(void)
     /* unbind */
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
-    GL_ERR("create VAO/VBO");
+    GL_ERR("create VAO/VBO/EBO");
 
     /* load texture */
 
-    stbi_set_flip_vertically_on_load(true);
     image = stbi_load("tilemap.png", &w, &h, &ch, 0);
     if (!image) die("stbi_load: could not load image `%s`\n", "tilemap.png");
 
@@ -428,6 +481,7 @@ teardown(void)
 {
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
+    glDeleteBuffers(1, &EBO);
     glDeleteTextures(1, &texture);
     glDeleteProgram(shader);
 
@@ -437,6 +491,7 @@ teardown(void)
     SDL_Quit();
 
     free(vertex_buffer);
+    free(index_buffer);
 }
 
 static void
@@ -445,30 +500,35 @@ render(void)
     /* bind buffers */
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    /*glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);*/
     glBindTexture(GL_TEXTURE_2D, texture);
 
     GL_ERR("bind buffers");
 
     /* update with data */
+    /*
     glBufferSubData(GL_ARRAY_BUFFER, 0, vertex_buffer_size, vertex_buffer);
+    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, index_buffer_size, index_buffer);
+    */
 
     GL_ERR("update data");
 
     /* clear background */
-    glClearColor(1.0, 0.0, 0.0, 1.0);
+    glClearColor(0.0, 0.0, 0.0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT);
 
     GL_ERR("clear background");
 
     /* draw */
     glUseProgram(shader);
-    glDrawArrays(GL_TRIANGLES, 0, vertex_buffer_size / sizeof(*vertex_buffer));
+    glDrawElements(GL_TRIANGLES, index_buffer_count, GL_UNSIGNED_INT, NULL);
 
     GL_ERR("draw");
 
     /* unbind buffers */
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
+    /*glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);*/
     glBindTexture(GL_TEXTURE_2D, 0);
 
     GL_ERR("unbind buffers");
