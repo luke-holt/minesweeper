@@ -13,6 +13,8 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#include "tilemap.h"
+
 const char *vertex_shader_source = "#version 330 core\n"
     "layout (location = 0) in vec2 pos;\n"
     "layout (location = 1) in vec2 texcoord;\n"
@@ -169,42 +171,6 @@ main(int argc, char *argv[])
 
     return 0;
 }
-
-enum {
-    TILE_CELL_UNKOWN,
-    TILE_CELL_EMPTY,
-    TILE_CELL_1,
-    TILE_CELL_2,
-    TILE_CELL_3,
-    TILE_CELL_4,
-    TILE_CELL_5,
-    TILE_CELL_6,
-    TILE_CELL_7,
-    TILE_CELL_8,
-    TILE_CELL_BOMB,
-    TILE_CELL_BOMBRED,
-    TILE_CELL_BOMBX,
-    TILE_SMILE_NORMAL,
-    TILE_SMILE_CLICK,
-    TILE_SMILE_WIN,
-    TILE_SMILE_LOSE,
-    TILE_NUM_0,
-    TILE_NUM_1,
-    TILE_NUM_2,
-    TILE_NUM_3,
-    TILE_NUM_4,
-    TILE_NUM_5,
-    TILE_NUM_6,
-    TILE_NUM_7,
-    TILE_NUM_8,
-    TILE_NUM_9,
-    TILE_BAR_LEFT,
-    TILE_BAR_MID,
-    TILE_BAR_RIGHT,
-    TILE_BOT_LEFT,
-    TILE_BOT_MID,
-    TILE_BOT_RIGHT,
-};
 
 void
 tilemap_init(int w, int h)
