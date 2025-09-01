@@ -14,21 +14,17 @@
 #include "stb_image.h"
 
 const char *vertex_shader_source = "#version 330 core\n"
-    "layout (location = 0) in vec3 pos;\n"
-    "layout (location = 1) in vec3 color;\n"
-    "layout (location = 2) in vec2 texcoord;\n"
-    "out vec4 vColor;\n"
+    "layout (location = 0) in vec2 pos;\n"
+    "layout (location = 1) in vec2 texcoord;\n"
     "out vec2 vTexCoord;\n"
     "void main()\n"
     "{\n"
-    "    gl_Position = vec4(pos.x, pos.y, pos.z, 1.0);\n"
-    "    vColor = vec4(color.x, color.y, color.z, 1.0);\n"
+    "    gl_Position = vec4(pos.x, pos.y, 1.0, 1.0);\n"
     "    vTexCoord = texcoord;\n"
     "}\0";
 
 const char *fragment_shader_source = "#version 330 core\n"
     "out vec4 fColor;\n"
-    "in vec4 vColor;\n"
     "in vec2 vTexCoord;\n"
     "uniform sampler2D tex0;\n"
     "void main()\n"
@@ -97,68 +93,32 @@ static void render(void);
 static void init(void);
 static void teardown(void);
 
-/* GLOBAL DATA */
-const int scw = 640;
-const int sch = 480;
+static void tilemap_init(int w, int h);
 
-GLuint VAO, VBO, EBO, shader, texture, uniform_tex0;
+/* GLOBAL DATA */
+int scw, sch;
+
+GLuint VAO, VBO, shader, texture, uniform_tex0;
 SDL_Window *g_window;
 SDL_GLContext g_gl_context;
 
-GLfloat *vertex_buffer;
-GLuint *index_buffer;
+struct vertex { float x, y, tx, ty; };
+struct vertex *vertex_buffer;
 int vertex_buffer_size = 0;
+
+/*
+GLuint *index_buffer;
 int index_buffer_size = 0;
 int index_buffer_count = 0;
+*/
 
 int
 main(int argc, char *argv[])
 {
     bool ret, quit;
     SDL_Event e;
-    int i, j;
 
-    /* 8 values per vertex (position, color, texcoord). 10x10 vertices (9x9 tiles). */
-    vertex_buffer_size = sizeof(*vertex_buffer) * 8 * 10 * 10;
-    vertex_buffer = malloc(vertex_buffer_size);
-
-    /* 3 indices per triangle. 2 triangles per tile. 9x9 tiles. */
-    index_buffer_count = 3 * 2 * 9 * 9;
-    index_buffer_size = sizeof(*index_buffer) * index_buffer_count;
-    index_buffer = malloc(index_buffer_size);
-
-    if (!vertex_buffer || !index_buffer) {
-        printf("could not allocate vertex buffer and index buffer\n");
-        exit(1);
-    }
-
-    /* set up vertex buffer */
-    for (j = 0; j < 10; j++) {
-        for (i = 0; i < 10; i++) {
-            /* 0:sc -> -1:1 => (pixel / scw) * 2 - 1  */
-            *(vertex_buffer + (j * 10 + i) * 8 + 0) = (float)(i * 40 + 20) / (float)scw * 2.0 - 1.0;
-            *(vertex_buffer + (j * 10 + i) * 8 + 1) = (float)(j * 40 + 20) / (float)sch * 2.0 - 1.0;
-            *(vertex_buffer + (j * 10 + i) * 8 + 2) = 0.0;
-            *(vertex_buffer + (j * 10 + i) * 8 + 3) = randf();
-            *(vertex_buffer + (j * 10 + i) * 8 + 4) = randf();
-            *(vertex_buffer + (j * 10 + i) * 8 + 5) = randf();
-            *(vertex_buffer + (j * 10 + i) * 8 + 6) = i&1 ? 1.0 : 0.0;
-            *(vertex_buffer + (j * 10 + i) * 8 + 7) = j&1 ? 1.0 : 0.0;
-        }
-    }
-
-    /* set up index buffer */
-    for (j = 0; j < 9; j++) {
-        for (i = 0; i < 9; i++) {
-            *(index_buffer + (j * 9 + i) * 6 + 0) = (j * 10 + i) + 0;
-            *(index_buffer + (j * 9 + i) * 6 + 1) = (j * 10 + i) + 1;
-            *(index_buffer + (j * 9 + i) * 6 + 2) = (j * 10 + i) + 10;
-
-            *(index_buffer + (j * 9 + i) * 6 + 3) = (j * 10 + i) + 1;
-            *(index_buffer + (j * 9 + i) * 6 + 4) = (j * 10 + i) + 10;
-            *(index_buffer + (j * 9 + i) * 6 + 5) = (j * 10 + i) + 11;
-        }
-    }
+    tilemap_init(9, 9);
 
     init();
 
@@ -210,6 +170,138 @@ main(int argc, char *argv[])
     teardown();
 
     return 0;
+}
+
+enum {
+    TILE_CELL_UNKOWN,
+    TILE_CELL_EMPTY,
+    TILE_CELL_1,
+    TILE_CELL_2,
+    TILE_CELL_3,
+    TILE_CELL_4,
+    TILE_CELL_5,
+    TILE_CELL_6,
+    TILE_CELL_7,
+    TILE_CELL_8,
+    TILE_CELL_BOMB,
+    TILE_CELL_BOMBRED,
+    TILE_SMILE_NORMAL,
+    TILE_SMILE_CLICK,
+    TILE_SMILE_WIN,
+    TILE_SMILE_LOSE,
+    TILE_NUM_0,
+    TILE_NUM_1,
+    TILE_NUM_2,
+    TILE_NUM_3,
+    TILE_NUM_4,
+    TILE_NUM_5,
+    TILE_NUM_6,
+    TILE_NUM_7,
+    TILE_NUM_8,
+    TILE_NUM_9,
+    TILE_BAR_LEFT,
+    TILE_BAR_MID,
+    TILE_BAR_RIGHT,
+    TILE_BOT_LEFT,
+    TILE_BOT_MID,
+    TILE_BOT_RIGHT,
+};
+
+void
+tilemap_init(int w, int h)
+{
+    int barh, border, tile, ox, oy, vcount, i, j;
+    struct vertex *v;
+
+    tile = 16;
+    border = 10;
+    barh = 52;
+    scw = border * 2 + tile * w;
+    sch = barh + tile * h + border;
+
+    vcount = 36 + (h + 1) * (w + 1) * 8;
+
+    vertex_buffer_size = vcount * sizeof(*vertex_buffer);
+    vertex_buffer = malloc(vertex_buffer_size);
+    if (!vertex_buffer) die("couldn't allocate vertex buffer");
+
+    v = vertex_buffer;
+
+    /* bar left */
+    *v++ = (struct vertex) {          0,            sch,  2, 30 };
+    *v++ = (struct vertex) { border - 1,            sch, 11, 30 };
+    *v++ = (struct vertex) {          0, sch - barh + 1,  2, 81 };
+    *v++ = (struct vertex) { border - 1, sch - barh + 1, 11, 81 };
+
+    /* bar middle */
+    *v++ = (struct vertex) {       border,            sch, 14, 30 };
+    *v++ = (struct vertex) { scw - border,            sch, 29, 30 };
+    *v++ = (struct vertex) {       border, sch - barh + 1, 14, 81 };
+    *v++ = (struct vertex) { scw - border, sch - barh + 1, 29, 81 };
+
+    /* bar right */
+    *v++ = (struct vertex) { scw - border + 1,            sch, 32, 30 };
+    *v++ = (struct vertex) {              scw,            sch, 41, 30 };
+    *v++ = (struct vertex) { scw - border + 1, sch - barh + 1, 32, 81 };
+    *v++ = (struct vertex) {              scw, sch - barh + 1, 41, 81 };
+
+    /* bottom border left */
+    *v++ = (struct vertex) {          0, border - 1,  2, 30 };
+    *v++ = (struct vertex) { border - 1, border - 1, 11, 30 };
+    *v++ = (struct vertex) {          0,          0,  2, 81 };
+    *v++ = (struct vertex) { border - 1,          0, 11, 81 };
+    
+    /* bottom border middle */
+    *v++ = (struct vertex) {       border, border - 1, 14, 30 };
+    *v++ = (struct vertex) { scw - border, border - 1, 29, 30 };
+    *v++ = (struct vertex) {       border,          0, 14, 81 };
+    *v++ = (struct vertex) { scw - border,          0, 29, 81 };
+    
+    /* bottom border right */
+    *v++ = (struct vertex) { scw - border + 1, border - 1, 32, 30 };
+    *v++ = (struct vertex) {              scw, border - 1, 41, 30 };
+    *v++ = (struct vertex) { scw - border + 1,          0, 32, 81 };
+    *v++ = (struct vertex) {              scw,          0, 41, 81 };
+    
+    /* left border */
+    *v++ = (struct vertex) {          0, sch - barh,  2, 40 };
+    *v++ = (struct vertex) { border - 1, sch - barh, 11, 40 };
+    *v++ = (struct vertex) {          0,     border,  2, 71 };
+    *v++ = (struct vertex) { border - 1,     border, 11, 71 };
+    
+    /* right border */
+    *v++ = (struct vertex) { scw - border + 1, sch - barh,  2, 40 };
+    *v++ = (struct vertex) {              scw, sch - barh, 11, 40 };
+    *v++ = (struct vertex) { scw - border + 1,     border,  2, 71 };
+    *v++ = (struct vertex) {              scw,     border, 11, 71 };
+
+    /* smile */
+    *v++ = (struct vertex) { scw / 2 - 13, sch - barh / 2 + 13,  86,  2 };
+    *v++ = (struct vertex) { scw / 2 + 13, sch - barh / 2 + 13, 111,  2 };
+    *v++ = (struct vertex) { scw / 2 - 13, sch - barh / 2 - 13,  86, 27 };
+    *v++ = (struct vertex) { scw / 2 + 13, sch - barh / 2 - 13, 111, 27 };
+
+    /*
+    ox = border;
+    oy = sch - barh;
+    for (j = 0; j < h+1; j++) {
+        for (i = 0; i < w+1; i++) {
+            *v++ = (struct vertex) {           ox + i * tile,           oy - j * tile, 80, 30 };
+            *v++ = (struct vertex) { ox + (i + 1) * tile - 1,           oy - j * tile, 95, 30 };
+            *v++ = (struct vertex) {           ox + i * tile, oy - (j + 1) * tile + 1, 80, 45 };
+            *v++ = (struct vertex) { ox + (i + 1) * tile - 1, oy - (j + 1) * tile + 1, 95, 45 };
+        }
+    }
+    */
+
+    /* map coordinates to [0, 1] */
+    v = vertex_buffer;
+    for (i = 0; i < vcount; i++) {
+        v[i].x = 2.0 * v[i].x / (float)scw - 1.0;
+        v[i].y = 2.0 * v[i].y / (float)sch - 1.0;
+        v[i].tx = v[i].tx / 256.0;
+        v[i].ty = v[i].ty / 256.0;
+    }
 }
 
 static void
@@ -270,41 +362,36 @@ init(void)
     glDeleteShader(fragment_shader);
     GL_ERR("compile shader");
 
-    /* VAO/VBO/EBO setup */
+    /* VAO/VBO setup */
 
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
 
     glBindVertexArray(VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
 
     /* populate buffers */
     glBufferData(GL_ARRAY_BUFFER, vertex_buffer_size, NULL, GL_DYNAMIC_DRAW);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_buffer_size, NULL, GL_DYNAMIC_DRAW);
 
     /* shader attributes (layout) position and color */
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(3 * sizeof(float)));
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(6 * sizeof(float)));
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
-    glEnableVertexAttribArray(2);
 
     /* unbind */
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
 
     GL_ERR("create VAO/VBO");
 
     /* load texture */
 
     stbi_set_flip_vertically_on_load(true);
-    image = stbi_load("texture.png", &w, &h, &ch, 0);
-    if (!image) die("stbi_load: could not load image `%s`\n", "texture.png");
+    image = stbi_load("tilemap.png", &w, &h, &ch, 0);
+    if (!image) die("stbi_load: could not load image `%s`\n", "tilemap.png");
 
     switch (ch) {
     case 1: fmt = GL_RED; break;
@@ -341,7 +428,6 @@ teardown(void)
 {
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
-    glDeleteBuffers(1, &EBO);
     glDeleteTextures(1, &texture);
     glDeleteProgram(shader);
 
@@ -351,7 +437,6 @@ teardown(void)
     SDL_Quit();
 
     free(vertex_buffer);
-    free(index_buffer);
 }
 
 static void
@@ -360,33 +445,30 @@ render(void)
     /* bind buffers */
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBindTexture(GL_TEXTURE_2D, texture);
 
     GL_ERR("bind buffers");
 
     /* update with data */
     glBufferSubData(GL_ARRAY_BUFFER, 0, vertex_buffer_size, vertex_buffer);
-    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, index_buffer_size, index_buffer);
 
     GL_ERR("update data");
 
     /* clear background */
-    glClearColor(0.0, 0.0, 0.0, 1.0);
+    glClearColor(1.0, 0.0, 0.0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT);
 
     GL_ERR("clear background");
 
     /* draw */
     glUseProgram(shader);
-    glDrawElements(GL_TRIANGLES, index_buffer_count, GL_UNSIGNED_INT, 0);
+    glDrawArrays(GL_TRIANGLES, 0, vertex_buffer_size / sizeof(*vertex_buffer));
 
-    GL_ERR("draw elements");
+    GL_ERR("draw");
 
     /* unbind buffers */
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBindTexture(GL_TEXTURE_2D, 0);
 
     GL_ERR("unbind buffers");
