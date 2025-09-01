@@ -13,6 +13,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#define TILEMAP_IMPLEMENTATION
 #include "tilemap.h"
 
 const char *vertex_shader_source = "#version 330 core\n"
@@ -202,101 +203,119 @@ tilemap_init(int w, int h)
 
     v = vertex_buffer;
 
+    struct tilecoords tc;
+
     /* bar left */
-    *v++ = (struct vertex) {          0,        sch,  2, 30 };
-    *v++ = (struct vertex) { border    ,        sch, 12, 30 };
-    *v++ = (struct vertex) {          0, sch - barh,  2, 82 };
-    *v++ = (struct vertex) { border    , sch - barh, 12, 82 };
+    tc = tilemap_get_tilecoords(TILE_FRAME_TOP_LEFT);
+    *v++ = (struct vertex) {          0,        sch, tc.x0, tc.y0 };
+    *v++ = (struct vertex) { border    ,        sch, tc.x1, tc.y1 };
+    *v++ = (struct vertex) {          0, sch - barh, tc.x2, tc.y2 };
+    *v++ = (struct vertex) { border    , sch - barh, tc.x3, tc.y3 };
 
     /* bar middle */
-    *v++ = (struct vertex) {       border,        sch, 14, 30 };
-    *v++ = (struct vertex) { scw - border,        sch, 30, 30 };
-    *v++ = (struct vertex) {       border, sch - barh, 14, 82 };
-    *v++ = (struct vertex) { scw - border, sch - barh, 30, 82 };
+    tc = tilemap_get_tilecoords(TILE_FRAME_TOP_MID);
+    *v++ = (struct vertex) {       border,        sch, tc.x0, tc.y0 };
+    *v++ = (struct vertex) { scw - border,        sch, tc.x1, tc.y1 };
+    *v++ = (struct vertex) {       border, sch - barh, tc.x2, tc.y2 };
+    *v++ = (struct vertex) { scw - border, sch - barh, tc.x3, tc.y3 };
 
     /* bar right */
-    *v++ = (struct vertex) { scw - border,        sch, 32, 30 };
-    *v++ = (struct vertex) {          scw,        sch, 42, 30 };
-    *v++ = (struct vertex) { scw - border, sch - barh, 32, 82 };
-    *v++ = (struct vertex) {          scw, sch - barh, 42, 82 };
+    tc = tilemap_get_tilecoords(TILE_FRAME_TOP_RIGHT);
+    *v++ = (struct vertex) { scw - border,        sch, tc.x0, tc.y0 };
+    *v++ = (struct vertex) {          scw,        sch, tc.x1, tc.y1 };
+    *v++ = (struct vertex) { scw - border, sch - barh, tc.x2, tc.y2 };
+    *v++ = (struct vertex) {          scw, sch - barh, tc.x3, tc.y3 };
 
     /* bottom border left */
-    *v++ = (struct vertex) {      0, border,  2, 84 };
-    *v++ = (struct vertex) { border, border, 12, 84 };
-    *v++ = (struct vertex) {      0,      0,  2, 94 };
-    *v++ = (struct vertex) { border,      0, 12, 94 };
+    tc = tilemap_get_tilecoords(TILE_FRAME_BOT_LEFT);
+    *v++ = (struct vertex) {      0, border, tc.x0, tc.y0 };
+    *v++ = (struct vertex) { border, border, tc.x1, tc.y1 };
+    *v++ = (struct vertex) {      0,      0, tc.x2, tc.y2 };
+    *v++ = (struct vertex) { border,      0, tc.x3, tc.y3 };
     
     /* bottom border middle */
-    *v++ = (struct vertex) {       border, border, 14, 84 };
-    *v++ = (struct vertex) { scw - border, border, 29, 84 };
-    *v++ = (struct vertex) {       border,      0, 14, 94 };
-    *v++ = (struct vertex) { scw - border,      0, 29, 94 };
+    tc = tilemap_get_tilecoords(TILE_FRAME_BOT_MID);
+    *v++ = (struct vertex) {       border, border, tc.x0, tc.y0 };
+    *v++ = (struct vertex) { scw - border, border, tc.x1, tc.y1 };
+    *v++ = (struct vertex) {       border,      0, tc.x2, tc.y2 };
+    *v++ = (struct vertex) { scw - border,      0, tc.x3, tc.y3 };
     
     /* bottom border right */
-    *v++ = (struct vertex) { scw - border, border, 32, 84 };
-    *v++ = (struct vertex) {          scw, border, 42, 84 };
-    *v++ = (struct vertex) { scw - border,      0, 32, 94 };
-    *v++ = (struct vertex) {          scw,      0, 42, 94 };
+    tc = tilemap_get_tilecoords(TILE_FRAME_BOT_RIGHT);
+    *v++ = (struct vertex) { scw - border, border, tc.x0, tc.y0 };
+    *v++ = (struct vertex) {          scw, border, tc.x1, tc.y1 };
+    *v++ = (struct vertex) { scw - border,      0, tc.x2, tc.y2 };
+    *v++ = (struct vertex) {          scw,      0, tc.x3, tc.y3 };
     
     /* left border */
-    *v++ = (struct vertex) {      0, sch - barh,  2, 40 };
-    *v++ = (struct vertex) { border, sch - barh, 12, 40 };
-    *v++ = (struct vertex) {      0,     border,  2, 72 };
-    *v++ = (struct vertex) { border,     border, 12, 72 };
+    tc = tilemap_get_tilecoords(TILE_FRAME_SIDE_LEFT);
+    *v++ = (struct vertex) {      0, sch - barh, tc.x0, tc.y0 };
+    *v++ = (struct vertex) { border, sch - barh, tc.x1, tc.y1 };
+    *v++ = (struct vertex) {      0,     border, tc.x2, tc.y2 };
+    *v++ = (struct vertex) { border,     border, tc.x3, tc.y3 };
     
     /* right border */
-    *v++ = (struct vertex) { scw - border, sch - barh,  2, 40 };
-    *v++ = (struct vertex) {          scw, sch - barh, 12, 40 };
-    *v++ = (struct vertex) { scw - border,     border,  2, 72 };
-    *v++ = (struct vertex) {          scw,     border, 12, 72 };
+    tc = tilemap_get_tilecoords(TILE_FRAME_SIDE_RIGHT);
+    *v++ = (struct vertex) { scw - border, sch - barh, tc.x0, tc.y0 };
+    *v++ = (struct vertex) {          scw, sch - barh, tc.x1, tc.y1 };
+    *v++ = (struct vertex) { scw - border,     border, tc.x2, tc.y2 };
+    *v++ = (struct vertex) {          scw,     border, tc.x3, tc.y3 };
 
     /* smile */
-    *v++ = (struct vertex) { scw / 2 - 13, sch - barh / 2 + 13,  86,  2 };
-    *v++ = (struct vertex) { scw / 2 + 13, sch - barh / 2 + 13, 111,  2 };
-    *v++ = (struct vertex) { scw / 2 - 13, sch - barh / 2 - 13,  86, 27 };
-    *v++ = (struct vertex) { scw / 2 + 13, sch - barh / 2 - 13, 111, 27 };
+    tc = tilemap_get_tilecoords(TILE_SMILE_COOL);
+    *v++ = (struct vertex) { scw / 2 - 13, sch - barh / 2 + 13, tc.x0, tc.y0 };
+    *v++ = (struct vertex) { scw / 2 + 13, sch - barh / 2 + 13, tc.x1, tc.y1 };
+    *v++ = (struct vertex) { scw / 2 - 13, sch - barh / 2 - 13, tc.x2, tc.y2 };
+    *v++ = (struct vertex) { scw / 2 + 13, sch - barh / 2 - 13, tc.x3, tc.y3 };
 
     /* left numbers */
-    *v++ = (struct vertex) {      16,      sch - 14, 2, 96 };
-    *v++ = (struct vertex) { 16 + 13,      sch - 14, 15, 96 };
-    *v++ = (struct vertex) {      16, sch - 14 - 23, 2, 119 };
-    *v++ = (struct vertex) { 16 + 13, sch - 14 - 23, 15, 119 };
+    tc = tilemap_get_tilecoords(TILE_NUM_0);
+    *v++ = (struct vertex) { 16,      sch - 14, tc.x0, tc.y0 };
+    *v++ = (struct vertex) { 29,      sch - 14, tc.x1, tc.y1 };
+    *v++ = (struct vertex) { 16, sch - 14 - 23, tc.x2, tc.y2 };
+    *v++ = (struct vertex) { 29, sch - 14 - 23, tc.x3, tc.y3 };
 
-    *v++ = (struct vertex) {      29,      sch - 14, 2, 96 };
-    *v++ = (struct vertex) { 29 + 13,      sch - 14, 15, 96 };
-    *v++ = (struct vertex) {      29, sch - 14 - 23, 2, 119 };
-    *v++ = (struct vertex) { 29 + 13, sch - 14 - 23, 15, 119 };
+    tc = tilemap_get_tilecoords(TILE_NUM_1);
+    *v++ = (struct vertex) { 29, sch - 14, tc.x0, tc.y0 };
+    *v++ = (struct vertex) { 42, sch - 14, tc.x1, tc.y1 };
+    *v++ = (struct vertex) { 29, sch - 37, tc.x2, tc.y2 };
+    *v++ = (struct vertex) { 42, sch - 37, tc.x3, tc.y3 };
 
-    *v++ = (struct vertex) {      42,      sch - 14, 2, 96 };
-    *v++ = (struct vertex) { 42 + 13,      sch - 14, 15, 96 };
-    *v++ = (struct vertex) {      42, sch - 14 - 23, 2, 119 };
-    *v++ = (struct vertex) { 42 + 13, sch - 14 - 23, 15, 119 };
+    tc = tilemap_get_tilecoords(TILE_NUM_2);
+    *v++ = (struct vertex) { 42,      sch - 14, tc.x0, tc.y0 };
+    *v++ = (struct vertex) { 55,      sch - 14, tc.x1, tc.y1 };
+    *v++ = (struct vertex) { 42, sch - 14 - 23, tc.x2, tc.y2 };
+    *v++ = (struct vertex) { 55, sch - 14 - 23, tc.x3, tc.y3 };
     
     /* right numbers */
-    *v++ = (struct vertex) { scw - 55,      sch - 14, 2, 96 };
-    *v++ = (struct vertex) { scw - 42,      sch - 14, 15, 96 };
-    *v++ = (struct vertex) { scw - 55, sch - 14 - 23, 2, 119 };
-    *v++ = (struct vertex) { scw - 42, sch - 14 - 23, 15, 119 };
+    tc = tilemap_get_tilecoords(TILE_NUM_3);
+    *v++ = (struct vertex) { scw - 55,      sch - 14, tc.x0, tc.y0 };
+    *v++ = (struct vertex) { scw - 42,      sch - 14, tc.x1, tc.y1 };
+    *v++ = (struct vertex) { scw - 55, sch - 14 - 23, tc.x2, tc.y2 };
+    *v++ = (struct vertex) { scw - 42, sch - 14 - 23, tc.x3, tc.y3 };
 
-    *v++ = (struct vertex) { scw - 42,      sch - 14, 2, 96 };
-    *v++ = (struct vertex) { scw - 29,      sch - 14, 15, 96 };
-    *v++ = (struct vertex) { scw - 42, sch - 14 - 23, 2, 119 };
-    *v++ = (struct vertex) { scw - 29, sch - 14 - 23, 15, 119 };
+    tc = tilemap_get_tilecoords(TILE_NUM_4);
+    *v++ = (struct vertex) { scw - 42,      sch - 14, tc.x0, tc.y0 };
+    *v++ = (struct vertex) { scw - 29,      sch - 14, tc.x1, tc.y1 };
+    *v++ = (struct vertex) { scw - 42, sch - 14 - 23, tc.x2, tc.y2 };
+    *v++ = (struct vertex) { scw - 29, sch - 14 - 23, tc.x3, tc.y3 };
 
-    *v++ = (struct vertex) { scw - 29,      sch - 14, 2, 96 };
-    *v++ = (struct vertex) { scw - 16,      sch - 14, 15, 96 };
-    *v++ = (struct vertex) { scw - 29, sch - 14 - 23, 2, 119 };
-    *v++ = (struct vertex) { scw - 16, sch - 14 - 23, 15, 119 };
+    tc = tilemap_get_tilecoords(TILE_NUM_5);
+    *v++ = (struct vertex) { scw - 29,      sch - 14, tc.x0, tc.y0 };
+    *v++ = (struct vertex) { scw - 16,      sch - 14, tc.x1, tc.y1 };
+    *v++ = (struct vertex) { scw - 29, sch - 14 - 23, tc.x2, tc.y2 };
+    *v++ = (struct vertex) { scw - 16, sch - 14 - 23, tc.x3, tc.y3 };
 
     /* mines */
     ox = border;
     oy = sch - barh;
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) {
-            *v++ = (struct vertex) {       ox + i * tile,       oy - j * tile, 80, 30 };
-            *v++ = (struct vertex) { ox + (i + 1) * tile,       oy - j * tile, 96, 30 };
-            *v++ = (struct vertex) {       ox + i * tile, oy - (j + 1) * tile, 80, 46 };
-            *v++ = (struct vertex) { ox + (i + 1) * tile, oy - (j + 1) * tile, 96, 46 };
+            tc = tilemap_get_tilecoords((int)(randf() * 14) + TILE_CELL_BOMB);
+            *v++ = (struct vertex) {       ox + i * tile,       oy - j * tile, tc.x0, tc.y0 };
+            *v++ = (struct vertex) { ox + (i + 1) * tile,       oy - j * tile, tc.x1, tc.y1 };
+            *v++ = (struct vertex) {       ox + i * tile, oy - (j + 1) * tile, tc.x2, tc.y2 };
+            *v++ = (struct vertex) { ox + (i + 1) * tile, oy - (j + 1) * tile, tc.x3, tc.y3 };
         }
     }
 
