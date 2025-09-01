@@ -10,7 +10,7 @@ enum {
     TILE_NUM_6, TILE_NUM_7, TILE_NUM_8,
     TILE_NUM_9,
 
-    TILE_CELL_BOMB, TILE_CELL_BOMBRED, TILE_CELL_UNKOWN, TILE_CELL_EMPTY,
+    TILE_CELL_BOMB, TILE_CELL_BOMBRED, TILE_CELL_UNKNOWN, TILE_CELL_EMPTY,
     TILE_CELL_FLAG, TILE_CELL_1, TILE_CELL_2, TILE_CELL_3, TILE_CELL_4,
     TILE_CELL_BOMBX, TILE_CELL_5, TILE_CELL_6, TILE_CELL_7, TILE_CELL_8,
 
@@ -46,7 +46,7 @@ static const struct tilecoords __tilemap_coords[] = {
     [TILE_NUM_9]            = { 137, 96, 150, 96, 137, 119, 150, 119 },
     [TILE_CELL_BOMB]        = {  44, 30,  60, 30,  44,  46,  60,  46 },
     [TILE_CELL_BOMBRED]     = {  62, 30,  78, 30,  62,  46,  78,  46 },
-    [TILE_CELL_UNKOWN]      = {  80, 30,  96, 30,  80,  46,  96,  46 },
+    [TILE_CELL_UNKNOWN]     = {  80, 30,  96, 30,  80,  46,  96,  46 },
     [TILE_CELL_EMPTY]       = {  98, 30, 114, 30,  98,  46, 114,  46 },
     [TILE_CELL_FLAG]        = { 116, 30, 132, 30, 116,  46, 132,  46 },
     [TILE_CELL_1]           = {  44, 48,  60, 48,  44,  64,  60,  64 },

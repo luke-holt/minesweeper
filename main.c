@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdarg.h>
+#include <string.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -48,29 +49,21 @@ uint32_t xorshift128_state[4] = { 0x01234567, 0x89abcdef, 0xfedcba98, 0x7654321 
 uint32_t xorshift128(uint32_t *state);
 uint32_t xorshift128(uint32_t *state) {
     uint32_t t, s;
-    t = state[3];
-    s = state[0];
+    t = state[3]; s = state[0];
     state[3] = state[2];
     state[2] = state[1];
     state[1] = s;
-    t ^= t << 11;
-    t ^= t >> 8;
-    state[0] = t ^ s ^ (s >> 19);
-    return state[0];
+    t ^= t << 11; t ^= t >> 8;
+    return state[0] = t ^ s ^ (s >> 19);
 }
-float randf(void) { return (float)xorshift128(xorshift128_state) / (float)XORSHIFT128_RAND_MAX; }
+static inline float randf(void){ return (float)xorshift128(xorshift128_state) / (float)XORSHIFT128_RAND_MAX; }
 
-#ifndef ENABLE_GL_ERR
-#define ENABLE_GL_ERR true
-#endif
-#define GL_ERR(msg) check_gl_err(ENABLE_GL_ERR, __LINE__, msg);
+#define GL_ERR(msg) check_gl_err(true, __LINE__, msg);
 static void check_gl_err(bool enable, int line, const char *msg) {
     GLenum err;
     bool error_occurred;
     const char *str;
-
     if (!enable) return;
-
     error_occurred = false;
     while ((err = glGetError()) != GL_NO_ERROR) {
         switch (err) {
@@ -81,31 +74,50 @@ static void check_gl_err(bool enable, int line, const char *msg) {
         case 0x0503: str = "GL_STACK_OVERFLOW"; break;
         case 0x0504: str = "GL_STACK_UNDERFLOW"; break;
         case 0x0505: str = "GL_OUT_OF_MEMORY"; break;
-        default: str = "unknown error"; break;
+        default: str = "unknown gl error"; break;
         }
         printf("main.c:line(%d):glerr(0x%x):%s: -> %s\n", line, err, str, msg);
         error_occurred = true;
     }
-
     if (error_occurred) exit(1);
 }
 
+struct vertex { float x, y, tx, ty; };
+
+enum {
+    GAME_STATE_IDLE,
+    GAME_STATE_ONGOING,
+    GAME_STATE_WON,
+    GAME_STATE_LOST,
+};
+
+struct gamestate {
+    int state;   /* idle, ongoing, won, lost */
+    int time;    /* game time in seconds */
+    int rem;     /* remaining mines */
+    int w, h;    /* width, height */
+    int hot;     /* hot tile */
+    int active;  /* active tile */
+    bool down;   /* mouse pressed */
+    unsigned char *mines; /* minefield */
+};
+
 static void die(const char *fmt, ...);
-
 static void render(void);
-static void init(void);
+static void window_init(void);
 static void teardown(void);
-
 static void tilemap_init(int w, int h);
+static void game_init(int w, int h);
+static void game_update_tiles(void);
+static void quad_update_texture(struct vertex *v, int tex);
 
 /* GLOBAL DATA */
 int scw, sch;
 
 GLuint VAO, VBO, EBO, shader, texture, uniform_tex0;
-SDL_Window *g_window;
-SDL_GLContext g_gl_context;
+SDL_Window *window;
+SDL_GLContext glctx;
 
-struct vertex { float x, y, tx, ty; };
 struct vertex *vertex_buffer;
 int vertex_buffer_size = 0;
 
@@ -113,17 +125,30 @@ GLuint *index_buffer;
 int index_buffer_size = 0;
 int index_buffer_count = 0;
 
+struct vertex *mine_vertices;
+struct vertex *bomb_counter_vertices;
+struct vertex *timer_vertices;
+struct vertex *smile_vertices;
+
+struct gamestate state;
+
 int
 main(int argc, char *argv[])
 {
     bool ret, quit;
     SDL_Event e;
+    int w, h;
 
-    tilemap_init(9, 9);
+    w = 9;
+    h = 9;
 
-    init();
+    game_init(w, h);
 
-    SDL_StartTextInput(g_window);
+    tilemap_init(w, h);
+
+    window_init();
+
+    SDL_StartTextInput(window);
 
     quit = false;
     while (!quit) {
@@ -157,15 +182,14 @@ main(int argc, char *argv[])
             }
         }
 
+        game_update_tiles();
         render();
 
-        /* swap buffers */
-
-        ret = SDL_GL_SwapWindow(g_window);
+        ret = SDL_GL_SwapWindow(window);
         sdl_err(ret);
     }
 
-    ret = SDL_StopTextInput(g_window);
+    ret = SDL_StopTextInput(window);
     sdl_err(ret);
 
     teardown();
@@ -177,6 +201,7 @@ void
 tilemap_init(int w, int h)
 {
     int barh, border, tile, ox, oy, vcount, i, j, nquad;
+    struct tilecoords tc;
     struct vertex *v;
 
     tile = 16;
@@ -202,8 +227,6 @@ tilemap_init(int w, int h)
     if (!index_buffer) die("couldn't allocate index buffer");
 
     v = vertex_buffer;
-
-    struct tilecoords tc;
 
     /* bar left */
     tc = tilemap_get_tilecoords(TILE_FRAME_TOP_LEFT);
@@ -262,13 +285,15 @@ tilemap_init(int w, int h)
     *v++ = (struct vertex) {          scw,     border, tc.x3, tc.y3 };
 
     /* smile */
+    smile_vertices = v;
     tc = tilemap_get_tilecoords(TILE_SMILE_COOL);
     *v++ = (struct vertex) { scw / 2 - 13, sch - barh / 2 + 13, tc.x0, tc.y0 };
     *v++ = (struct vertex) { scw / 2 + 13, sch - barh / 2 + 13, tc.x1, tc.y1 };
     *v++ = (struct vertex) { scw / 2 - 13, sch - barh / 2 - 13, tc.x2, tc.y2 };
     *v++ = (struct vertex) { scw / 2 + 13, sch - barh / 2 - 13, tc.x3, tc.y3 };
 
-    /* left numbers */
+    /* bomb counter */
+    bomb_counter_vertices = v;
     tc = tilemap_get_tilecoords(TILE_NUM_0);
     *v++ = (struct vertex) { 16,      sch - 14, tc.x0, tc.y0 };
     *v++ = (struct vertex) { 29,      sch - 14, tc.x1, tc.y1 };
@@ -287,7 +312,8 @@ tilemap_init(int w, int h)
     *v++ = (struct vertex) { 42, sch - 14 - 23, tc.x2, tc.y2 };
     *v++ = (struct vertex) { 55, sch - 14 - 23, tc.x3, tc.y3 };
     
-    /* right numbers */
+    /* timer */
+    timer_vertices = v;
     tc = tilemap_get_tilecoords(TILE_NUM_3);
     *v++ = (struct vertex) { scw - 55,      sch - 14, tc.x0, tc.y0 };
     *v++ = (struct vertex) { scw - 42,      sch - 14, tc.x1, tc.y1 };
@@ -307,11 +333,12 @@ tilemap_init(int w, int h)
     *v++ = (struct vertex) { scw - 16, sch - 14 - 23, tc.x3, tc.y3 };
 
     /* mines */
+    mine_vertices = v;
     ox = border;
     oy = sch - barh;
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) {
-            tc = tilemap_get_tilecoords((int)(randf() * 14) + TILE_CELL_BOMB);
+            tc = tilemap_get_tilecoords(TILE_CELL_UNKNOWN);
             *v++ = (struct vertex) {       ox + i * tile,       oy - j * tile, tc.x0, tc.y0 };
             *v++ = (struct vertex) { ox + (i + 1) * tile,       oy - j * tile, tc.x1, tc.y1 };
             *v++ = (struct vertex) {       ox + i * tile, oy - (j + 1) * tile, tc.x2, tc.y2 };
@@ -340,7 +367,7 @@ tilemap_init(int w, int h)
 }
 
 static void
-init(void)
+window_init(void)
 {
     GLuint vertex_shader, fragment_shader;
     int ret, w, h, ch;
@@ -362,11 +389,11 @@ init(void)
     /* SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1); */
     /* SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24); */
 
-    g_window = SDL_CreateWindow("minesweeper", scw, sch, SDL_WINDOW_OPENGL);
-    sdl_err(g_window != NULL);
+    window = SDL_CreateWindow("minesweeper", scw, sch, SDL_WINDOW_OPENGL);
+    sdl_err(window != NULL);
 
-    g_gl_context = SDL_GL_CreateContext(g_window);
-    sdl_err(g_gl_context != NULL);
+    glctx = SDL_GL_CreateContext(window);
+    sdl_err(glctx != NULL);
 
     ret = SDL_GL_SetSwapInterval(-1);
     sdl_err(ret);
@@ -472,11 +499,12 @@ teardown(void)
 
     GL_ERR("cleanup");
 
-    SDL_DestroyWindow(g_window);
+    SDL_DestroyWindow(window);
     SDL_Quit();
 
     free(vertex_buffer);
     free(index_buffer);
+    free(state.mines);
 }
 
 static void
@@ -529,3 +557,51 @@ die(const char *fmt, ...)
 	exit(1);
 }
 
+static void
+game_init(int w, int h)
+{
+    int sz;
+    state.state = GAME_STATE_IDLE;
+    state.time = 0;
+    state.rem = 0;
+    state.w = w;
+    state.h = h;
+    state.hot = -1;
+    state.active = -1;
+    state.down = false;
+    sz = sizeof(*state.mines) * w * h;
+    state.mines = malloc(sz);
+    if (!state.mines) die("couldn't allocate minefield\n");
+    memset(state.mines, TILE_CELL_UNKNOWN, sz);
+}
+
+static void
+game_update_tiles(void)
+{
+    int i;
+
+    quad_update_texture(smile_vertices, TILE_SMILE_HAPPY);
+
+    quad_update_texture(bomb_counter_vertices + 0, TILE_NUM_0);
+    quad_update_texture(bomb_counter_vertices + 4, TILE_NUM_0);
+    quad_update_texture(bomb_counter_vertices + 8, TILE_NUM_0);
+
+    quad_update_texture(timer_vertices + 0, TILE_NUM_0);
+    quad_update_texture(timer_vertices + 4, TILE_NUM_0);
+    quad_update_texture(timer_vertices + 8, TILE_NUM_0);
+
+    for (i = 0; i < state.w * state.h; i++) {
+        quad_update_texture(mine_vertices + i * 4, state.mines[i]);
+    }
+}
+
+static void
+quad_update_texture(struct vertex *v, int tex)
+{
+    struct tilecoords tc;
+    tc = tilemap_get_tilecoords(tex);
+    v[0].tx = tc.x0; v[0].ty = tc.y0;
+    v[1].tx = tc.x1; v[1].ty = tc.y1;
+    v[2].tx = tc.x2; v[2].ty = tc.y2;
+    v[3].tx = tc.x3; v[3].ty = tc.y3;
+}
