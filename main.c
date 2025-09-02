@@ -92,14 +92,16 @@ enum {
 };
 
 struct gamestate {
-    int state;   /* idle, ongoing, won, lost */
-    int time;    /* game time in seconds */
-    int rem;     /* remaining mines */
-    int w, h;    /* width, height */
-    int hot;     /* hot tile */
-    int active;  /* active tile */
-    bool down;   /* mouse pressed */
-    unsigned char *mines; /* minefield */
+    int state;            /* idle, ongoing, won, lost */
+    int time;             /* game time in seconds */
+    int rem;              /* remaining mines */
+    int w, h;             /* width, height */
+    int hot;              /* hot tile */
+    bool infield;         /* mouse in frame */
+    bool down;            /* mouse pressed */
+    bool up;              /* mouse released */
+    unsigned char *field; /* minefield */
+    bool *bombs;          /* location of mines */
 };
 
 static void die(const char *fmt, ...);
@@ -107,8 +109,8 @@ static void render(void);
 static void window_init(void);
 static void teardown(void);
 static void tilemap_init(int w, int h);
-static void game_init(int w, int h);
-static void game_update_tiles(void);
+static void game_init(int w, int h, int nbomb);
+static void game_update(void);
 static void quad_update_texture(struct vertex *v, int tex);
 
 /* GLOBAL DATA */
@@ -137,15 +139,13 @@ main(int argc, char *argv[])
 {
     bool ret, quit;
     SDL_Event e;
-    int w, h;
+    int w, h, i;
 
     w = 9;
     h = 9;
 
-    game_init(w, h);
-
+    game_init(w, h, 10);
     tilemap_init(w, h);
-
     window_init();
 
     SDL_StartTextInput(window);
@@ -162,16 +162,21 @@ main(int argc, char *argv[])
                 quit = true;
                 break;
 
+            case SDL_EVENT_MOUSE_MOTION:
+                i = (((int)e.motion.x - 10) / 16) + (((int)e.motion.y - 52) / 16) * w;
+                state.infield = (i >= 0 && i < (w * h));
+                break;
+
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
-                if (e.button.button == SDL_BUTTON_LEFT);
-                if (e.button.button == SDL_BUTTON_MIDDLE);
-                if (e.button.button == SDL_BUTTON_RIGHT);
+                i = (((int)e.motion.x - 10) / 16) + (((int)e.motion.y - 52) / 16) * w;
+                state.infield = (i >= 0 && i < (w * h));
+                state.down = (e.button.button == SDL_BUTTON_LEFT);
                 break;
 
             case SDL_EVENT_MOUSE_BUTTON_UP:
-                if (e.button.button == SDL_BUTTON_LEFT);
-                if (e.button.button == SDL_BUTTON_MIDDLE);
-                if (e.button.button == SDL_BUTTON_RIGHT);
+                i = (((int)e.motion.x - 10) / 16) + (((int)e.motion.y - 52) / 16) * w;
+                state.infield = (i >= 0 && i < (w * h));
+                state.up = (e.button.button == SDL_BUTTON_LEFT);
                 break;
 
             case SDL_EVENT_TEXT_INPUT:
@@ -182,7 +187,7 @@ main(int argc, char *argv[])
             }
         }
 
-        game_update_tiles();
+        game_update();
         render();
 
         ret = SDL_GL_SwapWindow(window);
@@ -201,7 +206,6 @@ void
 tilemap_init(int w, int h)
 {
     int barh, border, tile, ox, oy, vcount, i, j, nquad;
-    struct tilecoords tc;
     struct vertex *v;
 
     tile = 16;
@@ -229,108 +233,123 @@ tilemap_init(int w, int h)
     v = vertex_buffer;
 
     /* bar left */
-    tc = tilemap_get_tilecoords(TILE_FRAME_TOP_LEFT);
-    *v++ = (struct vertex) {          0,        sch, tc.x0, tc.y0 };
-    *v++ = (struct vertex) { border    ,        sch, tc.x1, tc.y1 };
-    *v++ = (struct vertex) {          0, sch - barh, tc.x2, tc.y2 };
-    *v++ = (struct vertex) { border    , sch - barh, tc.x3, tc.y3 };
+    v[0] = (struct vertex) {          0,        sch };
+    v[1] = (struct vertex) { border    ,        sch };
+    v[2] = (struct vertex) {          0, sch - barh };
+    v[3] = (struct vertex) { border    , sch - barh };
+    quad_update_texture(v, TILE_FRAME_TOP_LEFT);
+    v += 4;
 
     /* bar middle */
-    tc = tilemap_get_tilecoords(TILE_FRAME_TOP_MID);
-    *v++ = (struct vertex) {       border,        sch, tc.x0, tc.y0 };
-    *v++ = (struct vertex) { scw - border,        sch, tc.x1, tc.y1 };
-    *v++ = (struct vertex) {       border, sch - barh, tc.x2, tc.y2 };
-    *v++ = (struct vertex) { scw - border, sch - barh, tc.x3, tc.y3 };
+    v[0] = (struct vertex) {       border,        sch };
+    v[1] = (struct vertex) { scw - border,        sch };
+    v[2] = (struct vertex) {       border, sch - barh };
+    v[3] = (struct vertex) { scw - border, sch - barh };
+    quad_update_texture(v, TILE_FRAME_TOP_MID);
+    v += 4;
 
     /* bar right */
-    tc = tilemap_get_tilecoords(TILE_FRAME_TOP_RIGHT);
-    *v++ = (struct vertex) { scw - border,        sch, tc.x0, tc.y0 };
-    *v++ = (struct vertex) {          scw,        sch, tc.x1, tc.y1 };
-    *v++ = (struct vertex) { scw - border, sch - barh, tc.x2, tc.y2 };
-    *v++ = (struct vertex) {          scw, sch - barh, tc.x3, tc.y3 };
+    v[0] = (struct vertex) { scw - border,        sch };
+    v[1] = (struct vertex) {          scw,        sch };
+    v[2] = (struct vertex) { scw - border, sch - barh };
+    v[3] = (struct vertex) {          scw, sch - barh };
+    quad_update_texture(v, TILE_FRAME_TOP_RIGHT);
+    v += 4;
 
     /* bottom border left */
-    tc = tilemap_get_tilecoords(TILE_FRAME_BOT_LEFT);
-    *v++ = (struct vertex) {      0, border, tc.x0, tc.y0 };
-    *v++ = (struct vertex) { border, border, tc.x1, tc.y1 };
-    *v++ = (struct vertex) {      0,      0, tc.x2, tc.y2 };
-    *v++ = (struct vertex) { border,      0, tc.x3, tc.y3 };
+    v[0] = (struct vertex) {      0, border };
+    v[1] = (struct vertex) { border, border };
+    v[2] = (struct vertex) {      0,      0 };
+    v[3] = (struct vertex) { border,      0 };
+    quad_update_texture(v, TILE_FRAME_BOT_LEFT);
+    v += 4;
     
     /* bottom border middle */
-    tc = tilemap_get_tilecoords(TILE_FRAME_BOT_MID);
-    *v++ = (struct vertex) {       border, border, tc.x0, tc.y0 };
-    *v++ = (struct vertex) { scw - border, border, tc.x1, tc.y1 };
-    *v++ = (struct vertex) {       border,      0, tc.x2, tc.y2 };
-    *v++ = (struct vertex) { scw - border,      0, tc.x3, tc.y3 };
+    v[0] = (struct vertex) {       border, border };
+    v[1] = (struct vertex) { scw - border, border };
+    v[2] = (struct vertex) {       border,      0 };
+    v[3] = (struct vertex) { scw - border,      0 };
+    quad_update_texture(v, TILE_FRAME_BOT_MID);
+    v += 4;
     
     /* bottom border right */
-    tc = tilemap_get_tilecoords(TILE_FRAME_BOT_RIGHT);
-    *v++ = (struct vertex) { scw - border, border, tc.x0, tc.y0 };
-    *v++ = (struct vertex) {          scw, border, tc.x1, tc.y1 };
-    *v++ = (struct vertex) { scw - border,      0, tc.x2, tc.y2 };
-    *v++ = (struct vertex) {          scw,      0, tc.x3, tc.y3 };
+    v[0] = (struct vertex) { scw - border, border };
+    v[1] = (struct vertex) {          scw, border };
+    v[2] = (struct vertex) { scw - border,      0 };
+    v[3] = (struct vertex) {          scw,      0 };
+    quad_update_texture(v, TILE_FRAME_BOT_RIGHT);
+    v += 4;
     
     /* left border */
-    tc = tilemap_get_tilecoords(TILE_FRAME_SIDE_LEFT);
-    *v++ = (struct vertex) {      0, sch - barh, tc.x0, tc.y0 };
-    *v++ = (struct vertex) { border, sch - barh, tc.x1, tc.y1 };
-    *v++ = (struct vertex) {      0,     border, tc.x2, tc.y2 };
-    *v++ = (struct vertex) { border,     border, tc.x3, tc.y3 };
+    v[0] = (struct vertex) {      0, sch - barh };
+    v[1] = (struct vertex) { border, sch - barh };
+    v[2] = (struct vertex) {      0,     border };
+    v[3] = (struct vertex) { border,     border };
+    quad_update_texture(v, TILE_FRAME_SIDE_LEFT);
+    v += 4;
     
     /* right border */
-    tc = tilemap_get_tilecoords(TILE_FRAME_SIDE_RIGHT);
-    *v++ = (struct vertex) { scw - border, sch - barh, tc.x0, tc.y0 };
-    *v++ = (struct vertex) {          scw, sch - barh, tc.x1, tc.y1 };
-    *v++ = (struct vertex) { scw - border,     border, tc.x2, tc.y2 };
-    *v++ = (struct vertex) {          scw,     border, tc.x3, tc.y3 };
+    v[0] = (struct vertex) { scw - border, sch - barh };
+    v[1] = (struct vertex) {          scw, sch - barh };
+    v[2] = (struct vertex) { scw - border,     border };
+    v[3] = (struct vertex) {          scw,     border };
+    quad_update_texture(v, TILE_FRAME_SIDE_RIGHT);
+    v += 4;
 
     /* smile */
     smile_vertices = v;
-    tc = tilemap_get_tilecoords(TILE_SMILE_COOL);
-    *v++ = (struct vertex) { scw / 2 - 13, sch - barh / 2 + 13, tc.x0, tc.y0 };
-    *v++ = (struct vertex) { scw / 2 + 13, sch - barh / 2 + 13, tc.x1, tc.y1 };
-    *v++ = (struct vertex) { scw / 2 - 13, sch - barh / 2 - 13, tc.x2, tc.y2 };
-    *v++ = (struct vertex) { scw / 2 + 13, sch - barh / 2 - 13, tc.x3, tc.y3 };
+    v[0] = (struct vertex) { scw / 2 - 13, sch - barh / 2 + 13 };
+    v[1] = (struct vertex) { scw / 2 + 13, sch - barh / 2 + 13 };
+    v[2] = (struct vertex) { scw / 2 - 13, sch - barh / 2 - 13 };
+    v[3] = (struct vertex) { scw / 2 + 13, sch - barh / 2 - 13 };
+    quad_update_texture(v, TILE_SMILE_COOL);
+    v += 4;
 
     /* bomb counter */
     bomb_counter_vertices = v;
-    tc = tilemap_get_tilecoords(TILE_NUM_0);
-    *v++ = (struct vertex) { 16,      sch - 14, tc.x0, tc.y0 };
-    *v++ = (struct vertex) { 29,      sch - 14, tc.x1, tc.y1 };
-    *v++ = (struct vertex) { 16, sch - 14 - 23, tc.x2, tc.y2 };
-    *v++ = (struct vertex) { 29, sch - 14 - 23, tc.x3, tc.y3 };
+    v[0] = (struct vertex) { 16,      sch - 14 };
+    v[1] = (struct vertex) { 29,      sch - 14 };
+    v[2] = (struct vertex) { 16, sch - 14 - 23 };
+    v[3] = (struct vertex) { 29, sch - 14 - 23 };
+    quad_update_texture(v, TILE_NUM_0);
+    v += 4;
 
-    tc = tilemap_get_tilecoords(TILE_NUM_1);
-    *v++ = (struct vertex) { 29, sch - 14, tc.x0, tc.y0 };
-    *v++ = (struct vertex) { 42, sch - 14, tc.x1, tc.y1 };
-    *v++ = (struct vertex) { 29, sch - 37, tc.x2, tc.y2 };
-    *v++ = (struct vertex) { 42, sch - 37, tc.x3, tc.y3 };
+    v[0] = (struct vertex) { 29, sch - 14 };
+    v[1] = (struct vertex) { 42, sch - 14 };
+    v[2] = (struct vertex) { 29, sch - 37 };
+    v[3] = (struct vertex) { 42, sch - 37 };
+    quad_update_texture(v, TILE_NUM_1);
+    v += 4;
 
-    tc = tilemap_get_tilecoords(TILE_NUM_2);
-    *v++ = (struct vertex) { 42,      sch - 14, tc.x0, tc.y0 };
-    *v++ = (struct vertex) { 55,      sch - 14, tc.x1, tc.y1 };
-    *v++ = (struct vertex) { 42, sch - 14 - 23, tc.x2, tc.y2 };
-    *v++ = (struct vertex) { 55, sch - 14 - 23, tc.x3, tc.y3 };
+    v[0] = (struct vertex) { 42,      sch - 14 };
+    v[1] = (struct vertex) { 55,      sch - 14 };
+    v[2] = (struct vertex) { 42, sch - 14 - 23 };
+    v[3] = (struct vertex) { 55, sch - 14 - 23 };
+    quad_update_texture(v, TILE_NUM_2);
+    v += 4;
     
     /* timer */
     timer_vertices = v;
-    tc = tilemap_get_tilecoords(TILE_NUM_3);
-    *v++ = (struct vertex) { scw - 55,      sch - 14, tc.x0, tc.y0 };
-    *v++ = (struct vertex) { scw - 42,      sch - 14, tc.x1, tc.y1 };
-    *v++ = (struct vertex) { scw - 55, sch - 14 - 23, tc.x2, tc.y2 };
-    *v++ = (struct vertex) { scw - 42, sch - 14 - 23, tc.x3, tc.y3 };
+    v[0] = (struct vertex) { scw - 55,      sch - 14 };
+    v[1] = (struct vertex) { scw - 42,      sch - 14 };
+    v[2] = (struct vertex) { scw - 55, sch - 14 - 23 };
+    v[3] = (struct vertex) { scw - 42, sch - 14 - 23 };
+    quad_update_texture(v, TILE_NUM_3);
+    v += 4;
 
-    tc = tilemap_get_tilecoords(TILE_NUM_4);
-    *v++ = (struct vertex) { scw - 42,      sch - 14, tc.x0, tc.y0 };
-    *v++ = (struct vertex) { scw - 29,      sch - 14, tc.x1, tc.y1 };
-    *v++ = (struct vertex) { scw - 42, sch - 14 - 23, tc.x2, tc.y2 };
-    *v++ = (struct vertex) { scw - 29, sch - 14 - 23, tc.x3, tc.y3 };
+    v[0] = (struct vertex) { scw - 42,      sch - 14 };
+    v[1] = (struct vertex) { scw - 29,      sch - 14 };
+    v[2] = (struct vertex) { scw - 42, sch - 14 - 23 };
+    v[3] = (struct vertex) { scw - 29, sch - 14 - 23 };
+    quad_update_texture(v, TILE_NUM_4);
+    v += 4;
 
-    tc = tilemap_get_tilecoords(TILE_NUM_5);
-    *v++ = (struct vertex) { scw - 29,      sch - 14, tc.x0, tc.y0 };
-    *v++ = (struct vertex) { scw - 16,      sch - 14, tc.x1, tc.y1 };
-    *v++ = (struct vertex) { scw - 29, sch - 14 - 23, tc.x2, tc.y2 };
-    *v++ = (struct vertex) { scw - 16, sch - 14 - 23, tc.x3, tc.y3 };
+    v[0] = (struct vertex) { scw - 29,      sch - 14 };
+    v[1] = (struct vertex) { scw - 16,      sch - 14 };
+    v[2] = (struct vertex) { scw - 29, sch - 14 - 23 };
+    v[3] = (struct vertex) { scw - 16, sch - 14 - 23 };
+    quad_update_texture(v, TILE_NUM_5);
+    v += 4;
 
     /* mines */
     mine_vertices = v;
@@ -338,21 +357,20 @@ tilemap_init(int w, int h)
     oy = sch - barh;
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) {
-            tc = tilemap_get_tilecoords(TILE_CELL_UNKNOWN);
-            *v++ = (struct vertex) {       ox + i * tile,       oy - j * tile, tc.x0, tc.y0 };
-            *v++ = (struct vertex) { ox + (i + 1) * tile,       oy - j * tile, tc.x1, tc.y1 };
-            *v++ = (struct vertex) {       ox + i * tile, oy - (j + 1) * tile, tc.x2, tc.y2 };
-            *v++ = (struct vertex) { ox + (i + 1) * tile, oy - (j + 1) * tile, tc.x3, tc.y3 };
+            v[0] = (struct vertex) {       ox + i * tile,       oy - j * tile };
+            v[1] = (struct vertex) { ox + (i + 1) * tile,       oy - j * tile };
+            v[2] = (struct vertex) {       ox + i * tile, oy - (j + 1) * tile };
+            v[3] = (struct vertex) { ox + (i + 1) * tile, oy - (j + 1) * tile };
+            quad_update_texture(v, TILE_CELL_UNKNOWN);
+            v += 4;
         }
     }
 
-    /* map coordinates to gl space */
+    /* map vertex coordinates to gl space */
     v = vertex_buffer;
     for (i = 0; i < vcount; i++) {
         v[i].x = v[i].x / (float)scw * 2.0 - 1.0;
         v[i].y = v[i].y / (float)sch * 2.0 - 1.0;
-        v[i].tx = v[i].tx / 256.0;
-        v[i].ty = v[i].ty / 256.0;
     }
 
     /* setup indices */
@@ -431,13 +449,14 @@ window_init(void)
     glGenBuffers(1, &EBO);
 
     glBindVertexArray(VAO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
 
     /* populate buffers */
 
-    glBufferData(GL_ARRAY_BUFFER, vertex_buffer_size, vertex_buffer, GL_STATIC_DRAW);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_buffer_size, index_buffer, GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, vertex_buffer_size, NULL, GL_DYNAMIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_buffer_size, NULL, GL_DYNAMIC_DRAW);
 
     /* shader attributes (layout) position and color */
 
@@ -504,46 +523,39 @@ teardown(void)
 
     free(vertex_buffer);
     free(index_buffer);
-    free(state.mines);
+    free(state.field);
 }
 
 static void
 render(void)
 {
-    /* bind buffers */
-    glBindVertexArray(VAO);
+    /* update vbo */
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    /*glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);*/
-    glBindTexture(GL_TEXTURE_2D, texture);
-
-    GL_ERR("bind buffers");
-
-    /* update with data */
-    /*
     glBufferSubData(GL_ARRAY_BUFFER, 0, vertex_buffer_size, vertex_buffer);
-    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, index_buffer_size, index_buffer);
-    */
+    GL_ERR("update vbo");
 
-    GL_ERR("update data");
+    /* update ebo */
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, index_buffer_size, index_buffer);
+    GL_ERR("update ebo");
 
     /* clear background */
     glClearColor(0.0, 0.0, 0.0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT);
-
-    GL_ERR("clear background");
+    GL_ERR("clear color");
 
     /* draw */
     glUseProgram(shader);
+    glBindVertexArray(VAO);
+    glBindTexture(GL_TEXTURE_2D, texture);
     glDrawElements(GL_TRIANGLES, index_buffer_count, GL_UNSIGNED_INT, NULL);
-
-    GL_ERR("draw");
+    GL_ERR("draw elements");
 
     /* unbind buffers */
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
-    /*glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);*/
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     glBindTexture(GL_TEXTURE_2D, 0);
-
     GL_ERR("unbind buffers");
 }
 
@@ -558,27 +570,64 @@ die(const char *fmt, ...)
 }
 
 static void
-game_init(int w, int h)
+game_init(int w, int h, int nbomb)
 {
-    int sz;
+    int i;
     state.state = GAME_STATE_IDLE;
     state.time = 0;
-    state.rem = 0;
+    state.rem = nbomb;
     state.w = w;
     state.h = h;
-    state.hot = -1;
-    state.active = -1;
+    state.hot = 0;
     state.down = false;
-    sz = sizeof(*state.mines) * w * h;
-    state.mines = malloc(sz);
-    if (!state.mines) die("couldn't allocate minefield\n");
-    memset(state.mines, TILE_CELL_UNKNOWN, sz);
+    state.field = malloc(sizeof(*state.field) * w * h);
+    state.bombs = malloc(sizeof(*state.bombs) * w * h);
+    if (!state.field || !state.bombs) die("malloc failed\n");
+    memset(state.field, TILE_CELL_UNKNOWN, sizeof(*state.field) * w * h);
+    memset(state.bombs, TILE_CELL_UNKNOWN, sizeof(*state.bombs) * w * h);
+    do {
+        i = (randf() * (w * h - 1));
+        if (state.bombs[i]) {
+            state.bombs[i] = true;
+            nbomb--;
+        }
+    } while (nbomb);
 }
 
 static void
-game_update_tiles(void)
+game_update(void)
 {
     int i;
+
+    /* TODO(luke) continue writing game logic */
+
+    if (state.up) {
+        state.up = false;
+        state.down = false;
+    }
+
+    if (state.down) {
+        if (state.infield) {
+            quad_update_texture(mine_vertices + state.hot * 4, TILE_CELL_EMPTY);
+        }
+    }
+
+    for (i = 0; i < state.w * state.h; i++) {
+        quad_update_texture(mine_vertices + i * 4, state.field[i]);
+    }
+
+    if (state.infield && state.up) {
+        state.up = false;
+
+        if (state.bombs[state.hot]) {
+            state.state = GAME_STATE_LOST;
+            state.field[state.hot] = TILE_CELL_BOMB;
+        }
+
+        quad_update_texture(mine_vertices + state.hot * 4, TILE_CELL_EMPTY);
+
+        state.field[state.hot] = TILE_CELL_EMPTY;
+    }
 
     quad_update_texture(smile_vertices, TILE_SMILE_HAPPY);
 
@@ -589,10 +638,6 @@ game_update_tiles(void)
     quad_update_texture(timer_vertices + 0, TILE_NUM_0);
     quad_update_texture(timer_vertices + 4, TILE_NUM_0);
     quad_update_texture(timer_vertices + 8, TILE_NUM_0);
-
-    for (i = 0; i < state.w * state.h; i++) {
-        quad_update_texture(mine_vertices + i * 4, state.mines[i]);
-    }
 }
 
 static void
@@ -600,8 +645,8 @@ quad_update_texture(struct vertex *v, int tex)
 {
     struct tilecoords tc;
     tc = tilemap_get_tilecoords(tex);
-    v[0].tx = tc.x0; v[0].ty = tc.y0;
-    v[1].tx = tc.x1; v[1].ty = tc.y1;
-    v[2].tx = tc.x2; v[2].ty = tc.y2;
-    v[3].tx = tc.x3; v[3].ty = tc.y3;
+    v[0].tx = (float)tc.x0 / 256.0; v[0].ty = (float)tc.y0 / 256.0;
+    v[1].tx = (float)tc.x1 / 256.0; v[1].ty = (float)tc.y1 / 256.0;
+    v[2].tx = (float)tc.x2 / 256.0; v[2].ty = (float)tc.y2 / 256.0;
+    v[3].tx = (float)tc.x3 / 256.0; v[3].ty = (float)tc.y3 / 256.0;
 }
